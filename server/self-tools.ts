@@ -37,7 +37,7 @@ export function createSelfMcp() {
           const model = await getRuntimeModel();
           const config = {
             model,
-            envDefault: process.env.LLAMA_BRIDGE_MODEL ?? "default",
+            envDefault: process.env.LLAMA_BRIDGE_MODEL ?? "sonnet",
             availableModels: [...new Set([...KNOWN_MODELS, model])],
             userTimezone: tzInfo.isExplicit ? tzInfo.timezone : null,
             timezoneFallback: tzInfo.isExplicit ? null : tzInfo.timezone,
@@ -97,7 +97,7 @@ Use when the user tells you their timezone or location ("I'm in Dallas", "use ce
         `Switch the Llama Bridge model alias used for both this dispatcher and any sub-agents. The change applies to the *next* turn (this turn finishes on the current model). Accepts a bridge model id or a friendly alias.
 
 Aliases: ${Object.keys(MODEL_ALIASES).map((k) => `"${k}"`).join(", ")}
-Configured default: ${process.env.LLAMA_BRIDGE_MODEL ?? "default"}
+Configured default: ${process.env.LLAMA_BRIDGE_MODEL ?? "sonnet"}
 
 Use when the user asks to change the model, speed, or quality tradeoff. The bridge handles provider routing and cost policy centrally.
 
@@ -105,7 +105,7 @@ Cost note (approximate, per 1M output tokens): Opus 4.7 ≈ $75, Sonnet 4.6 ≈ 
         {
           model: z
             .string()
-            .describe('Bridge model id to use, or an alias like "default" / "fast".'),
+            .describe('Bridge model id to use, or an alias like "default" / "fast" / "sonnet".'),
         },
         async ({ model }) => {
           const resolved = resolveModelInput(model);
@@ -114,7 +114,7 @@ Cost note (approximate, per 1M output tokens): Opus 4.7 ≈ $75, Sonnet 4.6 ≈ 
               content: [
                 {
                   type: "text" as const,
-                  text: `Unknown model "${model}". Try ${process.env.LLAMA_BRIDGE_MODEL ?? "default"} or aliases ${Object.keys(MODEL_ALIASES).join(", ")}.`,
+                  text: `Unknown model "${model}". Try ${process.env.LLAMA_BRIDGE_MODEL ?? "sonnet"} or aliases ${Object.keys(MODEL_ALIASES).join(", ")}.`,
                 },
               ],
             };

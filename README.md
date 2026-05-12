@@ -32,7 +32,7 @@ Llama Agent routes every LLM request through your local Llama Bridge, keeps memo
 
 ```env
 LLAMA_BRIDGE_URL=http://127.0.0.1:8089
-LLAMA_BRIDGE_MODEL=default
+LLAMA_BRIDGE_MODEL=sonnet
 TELEGRAM_BOT_TOKEN=
 PORT=3456
 ```

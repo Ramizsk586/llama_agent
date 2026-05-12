@@ -15,6 +15,9 @@ export default defineConfig(({ mode }) => {
     root: path.resolve(__dirname),
     envDir: PROJECT_ROOT,
     plugins: [react(), tailwindcss()],
+    define: {
+      __BOOP_SERVER_PORT__: JSON.stringify(String(port)),
+    },
     server: {
       port: 5173,
       proxy: {

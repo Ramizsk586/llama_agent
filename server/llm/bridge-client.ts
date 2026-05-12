@@ -19,7 +19,11 @@ export interface BridgeChatResult {
 }
 
 const DEFAULT_BRIDGE_URL = "http://localhost:11434";
-const DEFAULT_BRIDGE_MODEL = "default";
+const DEFAULT_BRIDGE_MODEL = "sonnet";
+const DEFAULT_BRIDGE_AUTH_TOKEN = "change-me";
+const DEFAULT_HAIKU_MODEL = "haiku";
+const DEFAULT_SONNET_MODEL = "sonnet";
+const DEFAULT_OPUS_MODEL = "opus";
 
 let sdkPromise: Promise<AgentSdk> | null = null;
 
@@ -43,15 +47,19 @@ function bridgeAuthHeaders(): Record<string, string> {
 export function configureBridgeEnvironment(): void {
   process.env.LLAMA_BRIDGE_URL ||= DEFAULT_BRIDGE_URL;
   process.env.LLAMA_BRIDGE_MODEL ||= DEFAULT_BRIDGE_MODEL;
+  process.env.LLAMA_BRIDGE_API_KEY ||= process.env.ANTHROPIC_AUTH_TOKEN || DEFAULT_BRIDGE_AUTH_TOKEN;
 
   // The existing agent loop uses the Claude Agent SDK for MCP/tool execution.
   // Point that Anthropic-compatible client at the local Llama Bridge so no
-  // request goes to Anthropic directly.
+  // request goes to Anthropic directly. Llama Bridge exposes Anthropic model
+  // aliases named haiku, sonnet, and opus.
   process.env.ANTHROPIC_BASE_URL = bridgeUrl();
-  process.env.ANTHROPIC_AUTH_TOKEN ||= process.env.LLAMA_BRIDGE_API_KEY || "llama-agent";
-  process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||= bridgeModel();
-  process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||= bridgeModel();
-  process.env.ANTHROPIC_DEFAULT_OPUS_MODEL ||= bridgeModel();
+  process.env.ANTHROPIC_AUTH_TOKEN ||= process.env.LLAMA_BRIDGE_API_KEY;
+  process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ||= DEFAULT_HAIKU_MODEL;
+  process.env.ANTHROPIC_DEFAULT_SONNET_MODEL ||= DEFAULT_SONNET_MODEL;
+  process.env.ANTHROPIC_DEFAULT_OPUS_MODEL ||= DEFAULT_OPUS_MODEL;
+  process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC ||= "1";
+  process.env.API_TIMEOUT_MS ||= "3000000";
 }
 
 export async function ensureBridgeReachable(): Promise<void> {
@@ -59,7 +67,10 @@ export async function ensureBridgeReachable(): Promise<void> {
   const url = bridgeUrl();
   let response: Response;
   try {
-    response = await fetch(`${url}/health`, { headers: bridgeAuthHeaders() });
+    response = await fetch(`${url}/health`, {
+      headers: bridgeAuthHeaders(),
+      signal: AbortSignal.timeout(3000),
+    });
   } catch (err) {
     throw new Error(
       `ERROR: Cannot reach Llama Bridge at LLAMA_BRIDGE_URL. Is llama running? See https://github.com/Ramizsk586/llama\n${String(err)}`,

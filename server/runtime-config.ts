@@ -6,18 +6,20 @@ const MODEL_KEY = "model";
 const MODEL_TTL_MS = 30 * 1000;
 let cached: { at: number; value: string } | null = null;
 
-// User-friendly aliases the agent can pass through from Telegram. The bridge
-// owns actual provider/model routing; these aliases keep the old UX while
-// mapping everything to the configured bridge model by default.
+// User-friendly aliases the agent can pass through from Telegram. Llama Bridge
+// owns provider/model routing and exposes Anthropic-compatible aliases.
 export const MODEL_ALIASES: Record<string, string> = {
   bridge: bridgeModel(),
   default: bridgeModel(),
-  fast: bridgeModel(),
-  balanced: bridgeModel(),
-  capable: bridgeModel(),
+  haiku: "haiku",
+  sonnet: "sonnet",
+  opus: "opus",
+  fast: "haiku",
+  balanced: "sonnet",
+  capable: "opus",
 };
 
-export const KNOWN_MODELS = new Set<string>([bridgeModel()]);
+export const KNOWN_MODELS = new Set<string>([bridgeModel(), "haiku", "sonnet", "opus"]);
 
 export function resolveModelInput(input: string): string | null {
   const value = input.trim();

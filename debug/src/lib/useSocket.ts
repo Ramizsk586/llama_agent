@@ -6,6 +6,8 @@ export interface SocketEvent {
   at: number;
 }
 
+declare const __BOOP_SERVER_PORT__: string;
+
 export function useSocket(onEvent?: (e: SocketEvent) => void) {
   const [connected, setConnected] = useState(false);
   const handlerRef = useRef(onEvent);
@@ -19,7 +21,11 @@ export function useSocket(onEvent?: (e: SocketEvent) => void) {
     function connect() {
       if (cancelled) return;
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      const url = `${proto}//${location.host}/ws`;
+      const serverPort = __BOOP_SERVER_PORT__;
+      const host = serverPort && location.port === "5173"
+        ? `${location.hostname}:${serverPort}`
+        : location.host;
+      const url = `${proto}//${host}/ws`;
       ws = new WebSocket(url);
       ws.onopen = () => setConnected(true);
       ws.onclose = () => {

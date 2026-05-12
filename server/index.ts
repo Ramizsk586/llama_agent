@@ -19,30 +19,6 @@ import { ensureBridgeReachable } from "./llm/bridge-client.js";
 import { startTelegram } from "./channels/telegram.js";
 
 async function main() {
-  await ensureBridgeReachable();
-  await loadIntegrations();
-  startCleanupLoop();
-  startAutomationLoop();
-  startHeartbeatLoop();
-  startConsolidationLoop();
-  // No-op when a paid embedding key is set; otherwise downloads/loads the
-  // local BGE-large model in the background so the first user-facing
-  // recall() doesn't pay the model-load cost.
-  preloadLocalModel();
-
-  // If a stable public URL is configured, register the Composio webhook +
-  // Gmail trigger now. For ngrok-based dev, scripts/dev.mjs drives the same
-  // function once the ngrok URL is known, so we skip when only the local
-  // PORT default is available.
-  const stableUrl = process.env.PUBLIC_URL;
-  if (stableUrl && !stableUrl.includes("localhost")) {
-    ensureProactiveWatcher(stableUrl).catch((err) =>
-      console.error("[proactive] startup failed", err),
-    );
-  }
-
-  await startTelegram();
-
   const app = express();
   app.use(cors());
   // Composio webhook receiver must read raw bytes for HMAC verification, so
@@ -51,6 +27,16 @@ async function main() {
   // arrives empty.
   app.use("/composio/webhook", express.raw({ type: "application/json", limit: "2mb" }));
   app.use(express.json({ limit: "2mb" }));
+
+  app.get("/", (_req, res) => {
+    res.json({
+      ok: true,
+      service: "boop-agent",
+      dashboard: "http://localhost:5173",
+      health: "/health",
+      websocket: "/ws",
+    });
+  });
 
   app.get("/health", (_req, res) => {
     res.json({ ok: true, service: "boop-agent" });
@@ -116,6 +102,45 @@ async function main() {
     console.log(`  chat        POST http://localhost:${port}/chat`);
     console.log(`  websocket   WS   ws://localhost:${port}/ws`);
   });
+
+  void startBackgroundServices();
+}
+
+async function startBackgroundServices() {
+  try {
+    await ensureBridgeReachable();
+  } catch (err) {
+    console.warn("[bridge] startup check failed", err);
+  }
+
+  try {
+    await loadIntegrations();
+  } catch (err) {
+    console.warn("[integrations] startup failed", err);
+  }
+
+  startCleanupLoop();
+  startAutomationLoop();
+  startHeartbeatLoop();
+  startConsolidationLoop();
+
+  // No-op when a paid embedding key is set; otherwise downloads/loads the
+  // local BGE-large model in the background so the first user-facing
+  // recall() doesn't pay the model-load cost.
+  preloadLocalModel();
+
+  const stableUrl = process.env.PUBLIC_URL;
+  if (stableUrl && !stableUrl.includes("localhost")) {
+    ensureProactiveWatcher(stableUrl).catch((err) =>
+      console.error("[proactive] startup failed", err),
+    );
+  }
+
+  try {
+    await startTelegram();
+  } catch (err) {
+    console.warn("[telegram] startup failed", err);
+  }
 }
 
 main().catch((err) => {

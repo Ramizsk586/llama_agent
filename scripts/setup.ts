@@ -123,6 +123,16 @@ function runInherit(cmd: string, args: string[]): Promise<void> {
   });
 }
 
+async function tryRunInherit(cmd: string, args: string[]): Promise<boolean> {
+  try {
+    await runInherit(cmd, args);
+    return true;
+  } catch (err) {
+    console.warn(err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
 async function runConvexDev(): Promise<void> {
   const existing = readEnv(ENV_PATH);
   const args = existing.CONVEX_DEPLOYMENT
@@ -145,7 +155,7 @@ async function runDependencyUpdates(): Promise<void> {
   });
   if (!updateDeps) return;
 
-  await runInherit(resolveWindowsCmd("npm"), ["update"]);
+  await tryRunInherit(resolveWindowsCmd("npm"), ["update"]);
 
   const { updateConvex } = await prompts({
     type: "confirm",
@@ -154,8 +164,33 @@ async function runDependencyUpdates(): Promise<void> {
     initial: true,
   });
   if (updateConvex) {
-    await runInherit(resolveWindowsCmd("npm"), ["install", "convex@latest"]);
+    await tryRunInherit(resolveWindowsCmd("npm"), ["install", "convex@latest"]);
   }
+}
+
+async function installNgrok(): Promise<boolean> {
+  if (process.platform === "win32" && (await hasBinary("winget"))) {
+    console.log("\nInstalling ngrok with winget.");
+    for (const id of ["Ngrok.Ngrok", "ngrok.ngrok"]) {
+      if (await tryRunInherit("winget", ["install", "--id", id, "-e", "--accept-source-agreements", "--accept-package-agreements"])) {
+        return true;
+      }
+    }
+  }
+
+  if (await hasBinary("choco")) {
+    console.log("\nInstalling ngrok with Chocolatey.");
+    if (await tryRunInherit("choco", ["install", "ngrok", "-y"])) return true;
+  }
+
+  if (await hasBinary("scoop")) {
+    console.log("\nInstalling ngrok with Scoop.");
+    if (await tryRunInherit("scoop", ["install", "ngrok"])) return true;
+  }
+
+  console.log("\nCould not install ngrok automatically. Opening the official download page.");
+  openInBrowser("https://ngrok.com/download");
+  return false;
 }
 
 async function configureNgrok(): Promise<void> {
@@ -170,27 +205,24 @@ async function configureNgrok(): Promise<void> {
   if (!setupNgrok) return;
 
   if (!alreadyInstalled) {
-    if (process.platform === "win32" && (await hasBinary("winget"))) {
-      console.log("\nInstalling ngrok with winget.");
-      await runInherit("winget", ["install", "--id", "ngrok.ngrok", "-e", "--accept-source-agreements", "--accept-package-agreements"]);
-    } else {
-      console.log("\nInstall ngrok from https://ngrok.com/download, then rerun setup to add your authtoken.");
-      return;
-    }
-  } else if (process.platform === "win32" && (await hasBinary("winget"))) {
+    await installNgrok();
+  } else {
     const { upgradeNgrok } = await prompts({
       type: "confirm",
       name: "upgradeNgrok",
-      message: "Check for an ngrok update with winget now?",
+      message: "Check for an ngrok agent update now?",
       initial: true,
     });
     if (upgradeNgrok) {
-      await runInherit("winget", ["upgrade", "--id", "ngrok.ngrok", "-e", "--accept-source-agreements", "--accept-package-agreements"]);
+      const updated = await tryRunInherit("ngrok", ["update"]);
+      if (!updated && process.platform === "win32" && (await hasBinary("winget"))) {
+        await tryRunInherit("winget", ["upgrade", "--id", "Ngrok.Ngrok", "-e", "--accept-source-agreements", "--accept-package-agreements"]);
+      }
     }
   }
 
   if (!(await hasBinary("ngrok"))) {
-    console.log("\nngrok was installed, but this shell cannot see it yet. Open a new PowerShell and rerun setup to add your authtoken.");
+    console.log("\nAfter installing ngrok, open a new PowerShell and rerun setup to add your authtoken.");
     return;
   }
 
@@ -204,7 +236,14 @@ async function configureNgrok(): Promise<void> {
   });
   const token = stripEnvAssignment(NGROK_AUTHTOKEN || "", "NGROK_AUTHTOKEN");
   if (token) {
-    await runInherit("ngrok", ["config", "add-authtoken", token]);
+    const configured = await tryRunInherit("ngrok", ["config", "add-authtoken", token]);
+    if (!configured) {
+      console.log("\nCould not save the ngrok authtoken. You can run this manually:");
+      console.log("  ngrok config add-authtoken <your-token>");
+      return;
+    }
+  } else {
+    console.log("\nSkipped ngrok authtoken. The dev server will keep running locally if ngrok cannot start.");
   }
 
   const { NGROK_DOMAIN } = await prompts({
@@ -246,7 +285,13 @@ Before you start:
         type: "text",
         name: "LLAMA_BRIDGE_MODEL",
         message: "Llama Bridge model alias",
-        initial: existing.LLAMA_BRIDGE_MODEL ?? "default",
+        initial: existing.LLAMA_BRIDGE_MODEL ?? "sonnet",
+      },
+      {
+        type: "password",
+        name: "LLAMA_BRIDGE_API_KEY",
+        message: "Llama Bridge auth token (must match server.auth_token in env.yml)",
+        initial: existing.LLAMA_BRIDGE_API_KEY ?? "change-me",
       },
       {
         type: "password",
@@ -280,6 +325,9 @@ Before you start:
       },
     },
   )) as Record<string, string | boolean>;
+  if (typeof answers.LLAMA_BRIDGE_API_KEY === "string") {
+    answers.LLAMA_BRIDGE_API_KEY = stripEnvAssignment(answers.LLAMA_BRIDGE_API_KEY, "LLAMA_BRIDGE_API_KEY");
+  }
   if (typeof answers.TELEGRAM_BOT_TOKEN === "string") {
     answers.TELEGRAM_BOT_TOKEN = stripEnvAssignment(answers.TELEGRAM_BOT_TOKEN, "TELEGRAM_BOT_TOKEN");
   }
@@ -385,7 +433,7 @@ Before you start:
   delete env["BOOP" + "_MODEL"];
   delete env["ANTHROPIC" + "_API_KEY"];
   if (!env.PUBLIC_URL) env.PUBLIC_URL = `http://localhost:${env.PORT ?? "3456"}`;
-  if (env.CONVEX_URL?.includes("example.convex.cloud")) delete env.CONVEX_URL;
+  delete env.CONVEX_URL;
   if (env.VITE_CONVEX_URL?.includes("example.convex.cloud")) delete env.VITE_CONVEX_URL;
   writeEnv(ENV_PATH, env);
 
@@ -399,10 +447,12 @@ Before you start:
     const after = readEnv(ENV_PATH);
     const deploymentMatch = after.CONVEX_DEPLOYMENT?.match(/^([a-z]+):([\w-]+)/);
     if (deploymentMatch) {
-      const url = after.CONVEX_URL || after.VITE_CONVEX_URL || `https://${deploymentMatch[2]}.convex.cloud`;
-      if (after.CONVEX_URL !== url || after.VITE_CONVEX_URL !== url) {
-        writeEnv(ENV_PATH, { ...after, CONVEX_URL: url, VITE_CONVEX_URL: url });
-        console.log(`\nSynced CONVEX_URL + VITE_CONVEX_URL -> ${url}`);
+      const url = after.VITE_CONVEX_URL || after.CONVEX_URL || `https://${deploymentMatch[2]}.convex.cloud`;
+      if (after.VITE_CONVEX_URL !== url || after.CONVEX_URL) {
+        const next: Record<string, string> = { ...after, VITE_CONVEX_URL: url };
+        delete next.CONVEX_URL;
+        writeEnv(ENV_PATH, next);
+        console.log(`\nSynced VITE_CONVEX_URL -> ${url}`);
       }
     }
   } else {

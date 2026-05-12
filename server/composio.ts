@@ -442,7 +442,12 @@ function extractAccountIdentity(state: unknown, data: unknown): AccountIdentity 
 export async function renameConnection(connectionId: string, alias: string): Promise<void> {
   const composio = getComposio();
   if (!composio) throw new Error("COMPOSIO_API_KEY not set");
-  await composio.connectedAccounts.update(connectionId, { alias });
+  const patchClient = (composio as unknown as ComposioWithLinkClient).client?.connectedAccounts;
+  if (patchClient) {
+    await patchClient.patch(connectionId, { alias });
+    return;
+  }
+  await composio.connectedAccounts.update(connectionId, { alias } as never);
 }
 
 export class ComposioNeedsAuthConfigError extends Error {
@@ -457,6 +462,27 @@ export class ComposioNeedsAuthConfigError extends Error {
     );
     this.name = "ComposioNeedsAuthConfigError";
   }
+}
+
+interface ComposioLinkResponse {
+  connected_account_id: string;
+  redirect_url: string;
+}
+
+interface ComposioWithLinkClient {
+  client?: {
+    connectedAccounts?: {
+      patch(connectionId: string, body: { alias?: string }): Promise<unknown>;
+    };
+    link?: {
+      create(body: {
+        auth_config_id: string;
+        user_id: string;
+        alias?: string;
+        callback_url?: string;
+      }): Promise<ComposioLinkResponse>;
+    };
+  };
 }
 
 export async function authorizeToolkit(
@@ -494,17 +520,20 @@ export async function authorizeToolkit(
     }
   }
 
-  // 2. Initiate the connection. allowMultiple if there's already an active connection
-  //    so we add another account instead of replacing.
-  const existing = (await listConnectedToolkits()).filter(
-    (c) => c.slug === slug && c.status === "ACTIVE",
-  );
-  const conn = await composio.connectedAccounts.initiate(boopUserId(), authConfigId, {
-    ...(existing.length > 0 ? { allowMultiple: true } : {}),
-    ...(opts?.callbackUrl ? { callbackUrl: opts.callbackUrl } : {}),
+  // 2. Create an OAuth link. Composio deprecated creating managed OAuth
+  //    connections through connectedAccounts.initiate; the v3 link endpoint now
+  //    returns the redirect URL and a pending connected account ID.
+  const linkClient = (composio as unknown as ComposioWithLinkClient).client?.link;
+  if (!linkClient) {
+    throw new Error("Installed Composio SDK does not expose connected_accounts/link");
+  }
+  const conn = await linkClient.create({
+    auth_config_id: authConfigId,
+    user_id: boopUserId(),
+    ...(opts?.callbackUrl ? { callback_url: opts.callbackUrl } : {}),
     ...(opts?.alias ? { alias: opts.alias } : {}),
   });
-  return { redirectUrl: conn.redirectUrl ?? null, connectionId: conn.id };
+  return { redirectUrl: conn.redirect_url ?? null, connectionId: conn.connected_account_id };
 }
 
 export async function disconnectToolkit(connectionId: string): Promise<void> {

@@ -97,8 +97,8 @@ interface Challenge {
   severity: "low" | "medium" | "high";
 }
 
-const ADVERSARY_MODEL = process.env.LLAMA_BRIDGE_ADVERSARY_MODEL ?? process.env.LLAMA_BRIDGE_MODEL ?? "default";
-const DEFAULT_MODEL = process.env.LLAMA_BRIDGE_MODEL ?? "default";
+const ADVERSARY_MODEL = process.env.LLAMA_BRIDGE_ADVERSARY_MODEL ?? "opus";
+const DEFAULT_MODEL = process.env.LLAMA_BRIDGE_MODEL ?? "sonnet";
 
 interface Decision {
   proposalIndex: number;

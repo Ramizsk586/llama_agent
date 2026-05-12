@@ -14,7 +14,7 @@ import { describeUserNow } from "./timezone-config.js";
 import { chatWithUsage } from "./llm/bridge-client.js";
 
 const TRIGGER_SLUG = "GMAIL_NEW_GMAIL_MESSAGE";
-const CLASSIFIER_MODEL = process.env.LLAMA_BRIDGE_CLASSIFIER_MODEL ?? process.env.LLAMA_BRIDGE_MODEL ?? "default";
+const CLASSIFIER_MODEL = process.env.LLAMA_BRIDGE_CLASSIFIER_MODEL ?? "haiku";
 
 // First event per connection since process boot is treated as warmup â€”
 // classification is skipped to avoid noise from any backfill behavior on

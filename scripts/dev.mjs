@@ -63,6 +63,33 @@ function hasBinary(name) {
   });
 }
 
+function commandOutput(cmd, args) {
+  return new Promise((ok) => {
+    const child = spawnLocal(cmd, args, { cwd: root, env: { ...process.env } });
+    let out = "";
+    child.stdout?.on("data", (d) => {
+      out += d.toString();
+    });
+    child.stderr?.on("data", (d) => {
+      out += d.toString();
+    });
+    child.on("exit", (code) => ok(code === 0 ? out : null));
+    child.on("error", () => ok(null));
+  });
+}
+
+function versionAtLeast(version, minimum) {
+  const current = version.split(".").map((part) => Number(part) || 0);
+  const required = minimum.split(".").map((part) => Number(part) || 0);
+  for (let i = 0; i < Math.max(current.length, required.length); i++) {
+    const a = current[i] ?? 0;
+    const b = required[i] ?? 0;
+    if (a > b) return true;
+    if (a < b) return false;
+  }
+  return true;
+}
+
 const C = {
   server: "\x1b[36m",
   convex: "\x1b[35m",
@@ -163,9 +190,24 @@ ${line}${C.reset}`);
 }
 
 let ngrokInstalled = false;
+let ngrokTooOld = false;
 if (useNgrok) {
   ngrokInstalled = await hasBinary("ngrok");
-  if (!ngrokInstalled) {
+  if (ngrokInstalled) {
+    const versionOutput = await commandOutput("ngrok", ["version"]);
+    const version = versionOutput?.match(/ngrok version\s+(\d+\.\d+\.\d+)/i)?.[1];
+    if (version && !versionAtLeast(version, "3.20.0")) {
+      ngrokTooOld = true;
+      console.log(`
+${C.ngrok}! ngrok ${version} is too old for this account.${C.reset}
+${C.dim}  Run: ngrok update
+  Or download the latest version: https://ngrok.com/download
+  Continuing without a public tunnel.${C.reset}
+`);
+      ngrokInstalled = false;
+    }
+  }
+  if (!ngrokInstalled && !ngrokTooOld) {
     console.log(`
 ${C.ngrok}! ngrok is not installed - running without a public tunnel.${C.reset}
 ${C.dim}  Telegram polling still works without a tunnel.
@@ -178,10 +220,11 @@ console.log(`\nBoop dev starting on port ${port}. Ctrl-C to stop everything.\n`)
 
 run("upstream", "node", ["scripts/check-upstream.mjs"]);
 
-const serverChild = run("server", packageBin("tsx"), ["watch", "server/index.ts"], /listening on :/);
+const serverChild = run("server", "node", ["--import", "tsx", "server/index.ts"], /listening on :/);
 const convexChild = run("convex", packageBin("convex"), ["dev"], /Convex functions ready/);
 const debugChild = run("debug", packageBin("vite"), ["--config", "debug/vite.config.ts"], /Local:\s+http/);
 const children = [serverChild, convexChild, debugChild];
+const criticalChildren = [serverChild, convexChild, debugChild];
 
 let ngrokUrlReady = Promise.resolve(null);
 if (useNgrok && ngrokInstalled) {
@@ -190,6 +233,11 @@ if (useNgrok && ngrokInstalled) {
     : ["http", port, "--log=stdout", "--log-format=term", "--log-level=info"];
   const ngrokChild = run("ngrok", "ngrok", args);
   children.push(ngrokChild);
+  ngrokChild.on("exit", (code) => {
+    if (!shuttingDown && code !== 0) {
+      console.log(`${C.ngrok}ngrok${C.reset} | tunnel unavailable. Run \`npm run setup\` and paste your ngrok authtoken, or continue with local Telegram polling.`);
+    }
+  });
   ngrokUrlReady = waitForNgrokUrl().catch(() => null);
 }
 
@@ -254,7 +302,7 @@ const shutdown = (code = 0) => {
 };
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
-for (const c of children) {
+for (const c of criticalChildren) {
   c.on("exit", (code, signal) => {
     if (!shuttingDown) {
       const detail = signal ? `signal ${signal}` : `code ${code}`;

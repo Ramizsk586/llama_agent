@@ -43,7 +43,7 @@ export async function extractAndStore(opts: {
   turnId: string;
 }): Promise<void> {
   const started = Date.now();
-    const requestedModel = process.env.LLAMA_BRIDGE_MODEL ?? "default";
+    const requestedModel = process.env.LLAMA_BRIDGE_MODEL ?? "sonnet";
   try {
     const payload = `USER: ${opts.userMessage}\n\nASSISTANT: ${opts.assistantReply}`;
     const { content: buffer, usage } = await chatWithUsage(
