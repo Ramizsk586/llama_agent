@@ -88,8 +88,8 @@ export function aggregateUsageFromResult(
 
 function matchesAnyKey(requested: string, keys: string[]): boolean {
   if (keys.includes(requested)) return true;
-  // SDK may expand a short alias like "claude-sonnet-4-6" to a date-stamped
-  // full id like "claude-sonnet-4-6-20251101" in modelUsage keys. Prefix match
+  // The bridge or SDK may expand a short alias to a provider-specific model id.
+  // Prefix matching covers both directions.
   // covers both directions.
   return keys.some(
     (k) => k === requested || k.startsWith(requested) || requested.startsWith(k),

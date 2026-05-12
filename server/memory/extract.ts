@@ -1,8 +1,7 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import { api } from "../../convex/_generated/api.js";
 import { convex } from "../convex-client.js";
 import { embed } from "../embeddings.js";
-import { aggregateUsageFromResult, EMPTY_USAGE, type UsageTotals } from "../usage.js";
+import { chatWithUsage } from "../llm/bridge-client.js";
 import { SEGMENT_DEFAULTS, makeMemoryId, type MemorySegment } from "./types.js";
 
 const EXTRACTION_PROMPT = `You are a memory-extraction subagent.
@@ -44,27 +43,16 @@ export async function extractAndStore(opts: {
   turnId: string;
 }): Promise<void> {
   const started = Date.now();
-  const requestedModel = process.env.BOOP_MODEL ?? "claude-sonnet-4-6";
+    const requestedModel = process.env.LLAMA_BRIDGE_MODEL ?? "default";
   try {
     const payload = `USER: ${opts.userMessage}\n\nASSISTANT: ${opts.assistantReply}`;
-    let buffer = "";
-    let usage: UsageTotals = { ...EMPTY_USAGE };
-    for await (const msg of query({
-      prompt: payload,
-      options: {
-        systemPrompt: EXTRACTION_PROMPT,
-        model: requestedModel,
-        permissionMode: "bypassPermissions",
-      },
-    })) {
-      if (msg.type === "assistant") {
-        for (const block of msg.message.content) {
-          if (block.type === "text") buffer += block.text;
-        }
-      } else if (msg.type === "result") {
-        usage = aggregateUsageFromResult(msg, requestedModel);
-      }
-    }
+    const { content: buffer, usage } = await chatWithUsage(
+      [
+        { role: "system", content: EXTRACTION_PROMPT },
+        { role: "user", content: payload },
+      ],
+      { model: requestedModel },
+    );
 
     if (usage.costUsd > 0 || usage.inputTokens > 0) {
       await convex.mutation(api.usageRecords.record, {

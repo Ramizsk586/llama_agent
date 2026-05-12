@@ -167,11 +167,6 @@ export default defineSchema({
     .index("by_automation_id", ["automationId"])
     .index("by_enabled", ["enabled"]),
 
-  sendblueDedup: defineTable({
-    handle: v.string(),
-    claimedAt: v.number(),
-  }).index("by_handle", ["handle"]),
-
   drafts: defineTable({
     draftId: v.string(),
     conversationId: v.string(),
@@ -212,7 +207,7 @@ export default defineSchema({
     .index("by_status", ["status"]),
 
   // Runtime overrides for things normally pinned by env vars (e.g. the Claude
-  // model). Lets the user say "use opus" via iMessage and have the next agent
+  // model). Lets the user say "use opus" via Telegram and have the next agent
   // run respect it without a redeploy.
   settings: defineTable({
     key: v.string(),

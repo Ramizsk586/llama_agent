@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// One command to run Boop locally: server + convex + debug dashboard + ngrok.
-// Prefixes each child's output so you can tell who's saying what.
+// One command to run Boop locally: server + Convex + debug dashboard + optional ngrok.
 
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -10,21 +9,33 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 
-// --- preflight: Convex types must exist ----------------------------------
+function quoteCmdArg(arg) {
+  if (!/[()\][%!^"<>&|\s]/.test(arg)) return arg;
+  return `"${arg.replace(/"/g, '""')}"`;
+}
+
+function packageBin(name) {
+  return resolve(root, "node_modules", ".bin", process.platform === "win32" ? `${name}.cmd` : name);
+}
+
+function spawnLocal(cmd, args, options) {
+  if (process.platform === "win32" && cmd.endsWith(".cmd")) {
+    return spawn("cmd.exe", ["/d", "/s", "/c", [cmd, ...args].map(quoteCmdArg).join(" ")], options);
+  }
+  return spawn(cmd, args, options);
+}
+
 if (!existsSync(resolve(root, "convex/_generated/api.js"))) {
   console.error(`
-┌─────────────────────────────────────────────────────────────┐
-│  Convex types haven't been generated yet.                   │
-│                                                             │
-│  Run this first:                                            │
-│    npm run setup           (full interactive setup)         │
-│    npx convex dev --once   (just generate types)            │
-└─────────────────────────────────────────────────────────────┘
+Convex types have not been generated yet.
+
+Run one of these first:
+  npm run setup
+  npx convex dev --once
 `);
   process.exit(1);
 }
 
-// --- read PORT from .env.local ------------------------------------------
 function readEnv() {
   const p = resolve(root, ".env.local");
   if (!existsSync(p)) return {};
@@ -35,15 +46,14 @@ function readEnv() {
   }
   return env;
 }
+
 const envVars = readEnv();
 const port = envVars.PORT || "3456";
 const ngrokDomain = envVars.NGROK_DOMAIN || "";
 const publicUrl = envVars.PUBLIC_URL || "";
-const hasStaticUrl =
-  publicUrl && !publicUrl.includes("localhost") && !publicUrl.includes("127.0.0.1");
+const hasStaticUrl = publicUrl && !publicUrl.includes("localhost") && !publicUrl.includes("127.0.0.1");
 const useNgrok = !hasStaticUrl || Boolean(ngrokDomain);
 
-// --- binary detection ---------------------------------------------------
 function hasBinary(name) {
   return new Promise((ok) => {
     const lookup = process.platform === "win32" ? "where" : "which";
@@ -53,7 +63,6 @@ function hasBinary(name) {
   });
 }
 
-// --- color-prefixed child runner ----------------------------------------
 const C = {
   server: "\x1b[36m",
   convex: "\x1b[35m",
@@ -65,9 +74,6 @@ const C = {
   reset: "\x1b[0m",
 };
 
-// Vite's http-proxy attaches its own socket error logger that can't be removed
-// via configure(). EPIPE on WS reconnects is harmless — filter it at the
-// stream level so the logs stay readable.
 const NOISE_TRIGGERS = [
   /\[vite\] ws proxy socket error/,
   /\[vite\] ws proxy error/,
@@ -78,11 +84,17 @@ const NOISE_TRIGGERS = [
 const STACK_LINE = /^\s+at\s/;
 
 function run(name, cmd, args, readyPattern) {
-  const child = spawn(cmd, args, {
+  const env = { ...process.env, FORCE_COLOR: "1" };
+  if (name === "convex") {
+    delete env.CONVEX_URL;
+    delete env.VITE_CONVEX_URL;
+    delete env.VITE_CONVEX_SITE_URL;
+  }
+  const child = spawnLocal(cmd, args, {
     cwd: root,
-    env: { ...process.env, FORCE_COLOR: "1" },
+    env,
   });
-  const prefix = `${C[name]}${name.padEnd(6)}${C.reset} │ `;
+  const prefix = `${C[name]}${name.padEnd(6)}${C.reset} | `;
   let buf = "";
   let suppressing = false;
   let resolveReady;
@@ -93,10 +105,7 @@ function run(name, cmd, args, readyPattern) {
     while ((i = buf.indexOf("\n")) !== -1) {
       const line = buf.slice(0, i);
       buf = buf.slice(i + 1);
-
-      // ANSI-strip for matching without disturbing the display output.
       const plain = line.replace(/\x1b\[[0-9;]*m/g, "");
-
       if (NOISE_TRIGGERS.some((r) => r.test(plain))) {
         suppressing = true;
         continue;
@@ -105,18 +114,20 @@ function run(name, cmd, args, readyPattern) {
         if (STACK_LINE.test(plain) || plain.trim() === "") continue;
         suppressing = false;
       }
-
       if (line.trim()) process.stdout.write(prefix + line + "\n");
       if (readyPattern && readyPattern.test(plain)) resolveReady();
     }
   };
   child.stdout.on("data", feed);
   child.stderr.on("data", feed);
+  child.on("error", (err) => {
+    process.stderr.write(prefix + `failed to start ${cmd}: ${err.message}\n`);
+    resolveReady();
+  });
   child.ready = ready;
   return child;
 }
 
-// --- ngrok URL banner: poll local API after launch ----------------------
 async function waitForNgrokUrl(timeoutMs = 15000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -136,81 +147,40 @@ async function waitForNgrokUrl(timeoutMs = 15000) {
 }
 
 function showBanner(url, stable) {
-  const line = "═".repeat(68);
-  const webhook = `${url}/sendblue/webhook`;
-  const dashboard = `http://localhost:5173`;
-  const from = envVars.SENDBLUE_FROM_NUMBER;
-  const fromLine = from
-    ? `  📱 Text this Sendblue number:  ${from}  (from a DIFFERENT phone)`
-    : `  ⚠ SENDBLUE_FROM_NUMBER is not set — outbound sends will fail.\n     Run: npm run sendblue:sync   (pulls it from the Sendblue CLI)`;
-
-  const headline = stable
-    ? `your STABLE public URL is live.`
-    : `ngrok tunnel is live  (webhook auto-registered with Sendblue).`;
-  const footer = stable
-    ? ``
-    : `\n${C.dim}  ℹ The inbound webhook above was registered with Sendblue automatically.
-    Set SENDBLUE_AUTO_WEBHOOK=false in .env.local to disable, or pick a
-    stable URL (ngrok paid / Cloudflare Tunnel) via \`npm run setup\`.${C.reset}\n`;
-  const guide = stable
-    ? `\n  → First time? Sendblue dashboard → API Settings → Webhook\n    Configuration → add ${webhook} as INBOUND MESSAGE.\n`
-    : ``;
+  const line = "=".repeat(68);
+  const dashboard = "http://localhost:5173";
+  const telegram = envVars.TELEGRAM_BOT_TOKEN ? "polling enabled" : "set TELEGRAM_BOT_TOKEN to enable";
+  const headline = stable ? "your stable public URL is live." : "ngrok tunnel is live.";
 
   console.log(`
 ${C.banner}${line}
-  Boop is ready — ${headline}
+  Boop is ready - ${headline}
 
-  🐶 Debug dashboard (click me):   ${dashboard}
-  🌐 Public URL:                   ${url}
-  📮 Sendblue webhook (inbound):   ${webhook}
-${fromLine}${guide}
-${line}${C.reset}${footer}`);
+  Debug dashboard:   ${dashboard}
+  Public URL:        ${url}
+  Telegram:          ${telegram}
+${line}${C.reset}`);
 }
 
-// --- main ---------------------------------------------------------------
 let ngrokInstalled = false;
 if (useNgrok) {
   ngrokInstalled = await hasBinary("ngrok");
   if (!ngrokInstalled) {
     console.log(`
-${C.ngrok}! ngrok is not installed — running without a public tunnel.${C.reset}
-${C.dim}  Install:   brew install ngrok         (macOS)
-             or download from https://ngrok.com/download
-  Auth:      ngrok config add-authtoken <token>
-             (free token at https://dashboard.ngrok.com)
-  Without ngrok you can still use the debug dashboard at http://localhost:5173
-  — iMessage replies via Sendblue won't work until your server is reachable.${C.reset}
+${C.ngrok}! ngrok is not installed - running without a public tunnel.${C.reset}
+${C.dim}  Telegram polling still works without a tunnel.
+  Debug dashboard: http://localhost:5173${C.reset}
 `);
   }
 }
 
 console.log(`\nBoop dev starting on port ${port}. Ctrl-C to stop everything.\n`);
 
-// Background "new-version available?" check. Runs concurrently with the
-// child services; output is prefixed with `upstream │ ` by run() so it
-// won't collide with startup logs. Silent on the happy path. Not added to
-// the `children` array because it exits on its own — we don't want its
-// non-zero exit (which shouldn't happen but hedge anyway) to tear down dev.
 run("upstream", "node", ["scripts/check-upstream.mjs"]);
 
-const serverChild = run(
-  "server",
-  "npx",
-  ["tsx", "watch", "server/index.ts"],
-  /listening on :/,
-);
-const convexChild = run(
-  "convex",
-  "npx",
-  ["convex", "dev"],
-  /Convex functions ready/,
-);
-const debugChild = run(
-  "debug",
-  "npx",
-  ["vite", "--config", "debug/vite.config.ts"],
-  /Local:\s+http/,
-);
+const serverChild = run("server", packageBin("tsx"), ["watch", "server/index.ts"], /listening on :/);
+const convexChild = run("convex", packageBin("convex"), ["dev"], /Convex functions ready/);
+const debugChild = run("debug", packageBin("vite"), ["--config", "debug/vite.config.ts"], /Local:\s+http/);
 const children = [serverChild, convexChild, debugChild];
 
 let ngrokUrlReady = Promise.resolve(null);
@@ -223,34 +193,11 @@ if (useNgrok && ngrokInstalled) {
   ngrokUrlReady = waitForNgrokUrl().catch(() => null);
 }
 
-// Wait for all the core services to be ready before printing the banner,
-// so the URL isn't dangled in front of the user while Convex is still booting.
-async function autoRegisterWebhook(publicUrl) {
-  if (envVars.SENDBLUE_AUTO_WEBHOOK === "false") return;
-  const webhookUrl = `${publicUrl}/sendblue/webhook`;
-  const prefix = `${C.ngrok}webhook${C.reset} │ `;
-  const child = spawn("node", ["scripts/sendblue-webhook.mjs", webhookUrl], {
-    cwd: root,
-    env: { ...process.env },
-  });
-  child.stdout.on("data", (d) => {
-    for (const line of d.toString().split("\n")) {
-      if (line.trim()) process.stdout.write(prefix + line + "\n");
-    }
-  });
-  child.stderr.on("data", (d) => {
-    for (const line of d.toString().split("\n")) {
-      if (line.trim()) process.stdout.write(prefix + line + "\n");
-    }
-  });
-  await new Promise((r) => child.on("exit", r));
-}
-
-async function autoRegisterComposioWebhook(publicUrl) {
+async function autoRegisterComposioWebhook(url) {
   if (envVars.COMPOSIO_AUTO_WEBHOOK === "false") return;
   if (!envVars.COMPOSIO_API_KEY) return;
-  const prefix = `${C.ngrok}composio${C.reset} │ `;
-  const child = spawn("npx", ["tsx", "scripts/composio-webhook.ts", publicUrl], {
+  const prefix = `${C.ngrok}composio${C.reset} | `;
+  const child = spawnLocal(packageBin("tsx"), ["scripts/composio-webhook.ts", url], {
     cwd: root,
     env: { ...process.env },
   });
@@ -267,42 +214,25 @@ async function autoRegisterComposioWebhook(publicUrl) {
   await new Promise((r) => child.on("exit", r));
 }
 
-Promise.all([
-  serverChild.ready,
-  convexChild.ready,
-  debugChild.ready,
-  ngrokUrlReady,
-])
+Promise.all([serverChild.ready, convexChild.ready, debugChild.ready, ngrokUrlReady])
   .then(async ([, , , ngrokUrl]) => {
     if (useNgrok && ngrokInstalled) {
       if (ngrokUrl) {
-        // Only auto-register for ephemeral ngrok URLs. Reserved domains and
-        // static URLs are already fixed in the Sendblue dashboard.
-        if (!ngrokDomain) {
-          await autoRegisterWebhook(ngrokUrl);
-        }
-        // Composio webhook subscription is fully programmatic (PATCHable),
-        // so we can refresh it on every restart regardless of whether the
-        // domain is reserved.
         await autoRegisterComposioWebhook(ngrokUrl);
         showBanner(ngrokUrl, Boolean(ngrokDomain));
       } else {
-        console.log(
-          `${C.ngrok}ngrok${C.reset} │ could not read tunnel URL from http://127.0.0.1:4040 — check ngrok output above.`,
-        );
+        console.log(`${C.ngrok}ngrok${C.reset} | could not read tunnel URL from http://127.0.0.1:4040`);
       }
     } else if (hasStaticUrl) {
       showBanner(publicUrl, true);
     } else {
-      const line = "═".repeat(68);
+      const line = "=".repeat(68);
       console.log(`
 ${C.banner}${line}
   Boop is running locally.
 
-  🐶 Debug dashboard:   http://localhost:5173
-
-  ⚠ No public tunnel configured. iMessage won't work until you expose
-    the server. Use the Chat tab in the dashboard to test for now.
+  Debug dashboard: http://localhost:5173
+  Telegram polling works when TELEGRAM_BOT_TOKEN is set.
 ${line}${C.reset}
 `);
     }
@@ -325,10 +255,11 @@ const shutdown = (code = 0) => {
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
 for (const c of children) {
-  c.on("exit", (code) => {
-    if (!shuttingDown && code !== null && code !== 0) {
-      console.error(`\nA child process exited with code ${code}. Shutting down.`);
-      shutdown(code);
+  c.on("exit", (code, signal) => {
+    if (!shuttingDown) {
+      const detail = signal ? `signal ${signal}` : `code ${code}`;
+      console.error(`\nA child process exited with ${detail}. Shutting down.`);
+      shutdown(code ?? 1);
     }
   });
 }

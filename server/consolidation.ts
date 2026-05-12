@@ -1,8 +1,8 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { broadcast } from "./broadcast.js";
-import { aggregateUsageFromResult, EMPTY_USAGE, type UsageTotals } from "./usage.js";
+import type { UsageTotals } from "./usage.js";
+import { chatWithUsage } from "./llm/bridge-client.js";
 
 function randomId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -97,8 +97,8 @@ interface Challenge {
   severity: "low" | "medium" | "high";
 }
 
-const ADVERSARY_MODEL = process.env.BOOP_ADVERSARY_MODEL ?? "claude-haiku-4-5";
-const DEFAULT_MODEL = process.env.BOOP_MODEL ?? "claude-sonnet-4-6";
+const ADVERSARY_MODEL = process.env.LLAMA_BRIDGE_ADVERSARY_MODEL ?? process.env.LLAMA_BRIDGE_MODEL ?? "default";
+const DEFAULT_MODEL = process.env.LLAMA_BRIDGE_MODEL ?? "default";
 
 interface Decision {
   proposalIndex: number;
@@ -118,24 +118,13 @@ async function runLlm(
   model: string = DEFAULT_MODEL,
 ): Promise<{ buffer: string; usage: UsageTotals; durationMs: number }> {
   const started = Date.now();
-  let buffer = "";
-  let usage: UsageTotals = { ...EMPTY_USAGE };
-  for await (const msg of query({
-    prompt: userPrompt,
-    options: {
-      systemPrompt,
-      model,
-      permissionMode: "bypassPermissions",
-    },
-  })) {
-    if (msg.type === "assistant") {
-      for (const block of msg.message.content) {
-        if (block.type === "text") buffer += block.text;
-      }
-    } else if (msg.type === "result") {
-      usage = aggregateUsageFromResult(msg, model);
-    }
-  }
+  const { content: buffer, usage } = await chatWithUsage(
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    { model },
+  );
   return { buffer, usage, durationMs: Date.now() - started };
 }
 

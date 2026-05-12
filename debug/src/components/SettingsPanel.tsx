@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api.js";
 
@@ -25,7 +25,7 @@ const SETTINGS: Setting[] = [
     key: "proactive_enabled",
     label: "Proactive email surfacing",
     description:
-      "Watch new Gmail messages. When something important arrives, you'll get an iMessage. Turn off to silence the watcher entirely without disconnecting Gmail.",
+      "Watch new Gmail messages. When something important arrives, you'll get a Telegram notice. Turn off to silence the watcher entirely without disconnecting Gmail.",
     defaultEnabled: true,
   },
   {
@@ -33,11 +33,11 @@ const SETTINGS: Setting[] = [
     key: "user_timezone",
     label: "Your timezone",
     description:
-      "Used for deadline checks, 'today', and any time-of-day reasoning. The agent can also update this via iMessage when you tell it your timezone.",
+      "Used for deadline checks, 'today', and any time-of-day reasoning. The agent can also update this via Telegram when you tell it your timezone.",
   },
 ];
 
-// A short curated list for the dropdown — covers most US users plus a few
+// A short curated list for the dropdown â€” covers most US users plus a few
 // common international zones. The text input next to the dropdown lets the
 // user paste any IANA ID for the long tail.
 const COMMON_TIMEZONES: Array<{ value: string; label: string }> = [
@@ -162,7 +162,7 @@ function ToggleRow({
 
   const debugLine = `settings.${setting.key} = ${
     loading
-      ? "…"
+      ? "â€¦"
       : value === null
         ? `(unset, default ${setting.defaultEnabled ? "true" : "false"})`
         : `"${value}"`
@@ -224,7 +224,7 @@ function TimezoneRow({
   const stored = !loading && value !== null ? value : null;
 
   // Keep the input in sync when the stored value changes (e.g. agent updates
-  // it from iMessage while the panel is open).
+  // it from Telegram while the panel is open).
   useEffect(() => {
     if (!loading) setDraft(stored ?? "");
   }, [loading, stored]);
@@ -288,8 +288,8 @@ function TimezoneRow({
   }
 
   const debugLine = `settings.${setting.key} = ${
-    loading ? "…" : stored === null ? "(unset, falling back to server zone)" : `"${stored}"`
-  }${now ? ` · now: ${now}` : ""}`;
+    loading ? "â€¦" : stored === null ? "(unset, falling back to server zone)" : `"${stored}"`
+  }${now ? ` Â· now: ${now}` : ""}`;
 
   const inputBg = isDark
     ? "bg-slate-900 border-slate-700 text-slate-200 placeholder:text-slate-600"
@@ -318,7 +318,7 @@ function TimezoneRow({
               disabled={saving || loading}
               className={`text-xs px-2 py-1.5 border rounded-md flex-1 ${inputBg}`}
             >
-              <option value="">— pick a common zone —</option>
+              <option value="">â€” pick a common zone â€”</option>
               {COMMON_TIMEZONES.map((t) => (
                 <option key={t.value} value={t.value}>
                   {t.label}
@@ -340,7 +340,7 @@ function TimezoneRow({
               disabled={saving || loading || draft.trim() === (stored ?? "")}
               className={`text-xs px-3 py-1.5 rounded-md disabled:opacity-50 ${btnBg}`}
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Savingâ€¦" : "Save"}
             </button>
           </div>
           {stored !== null && (
@@ -358,3 +358,4 @@ function TimezoneRow({
     />
   );
 }
+

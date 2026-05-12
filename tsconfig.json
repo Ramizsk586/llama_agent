@@ -14,11 +14,10 @@
     "isolatedModules": true,
     "noEmit": true,
     "allowImportingTsExtensions": false,
-    "baseUrl": ".",
     "paths": {
-      "@server/*": ["server/*"],
-      "@integrations/*": ["integrations/*"],
-      "@convex/*": ["convex/*"]
+      "@server/*": ["./server/*"],
+      "@integrations/*": ["./integrations/*"],
+      "@convex/*": ["./convex/*"]
     }
   },
   "include": ["server/**/*.ts", "integrations/**/*.ts", "scripts/**/*.ts", "debug/src/**/*.ts", "debug/src/**/*.tsx"],

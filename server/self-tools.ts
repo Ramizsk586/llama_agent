@@ -29,15 +29,16 @@ export function createSelfMcp() {
     tools: [
       tool(
         "get_config",
-        "Return Boop's runtime configuration: which Claude model it's using, the user's timezone, the current local time, which integrations are loaded, and basic env info. Use when the user asks 'what model are you?', 'what time is it?', 'what timezone am I in?', or anything about the agent itself.",
+        "Return Boop's runtime configuration: which Llama Bridge model it's using, the user's timezone, the current local time, which integrations are loaded, and basic env info. Use when the user asks 'what model are you?', 'what time is it?', 'what timezone am I in?', or anything about the agent itself.",
         {},
         async () => {
           const integrations = availableIntegrations();
           const tzInfo = await describeUserNow();
+          const model = await getRuntimeModel();
           const config = {
-            model: await getRuntimeModel(),
-            envDefault: process.env.BOOP_MODEL ?? "claude-sonnet-4-6",
-            availableModels: [...KNOWN_MODELS],
+            model,
+            envDefault: process.env.LLAMA_BRIDGE_MODEL ?? "default",
+            availableModels: [...new Set([...KNOWN_MODELS, model])],
             userTimezone: tzInfo.isExplicit ? tzInfo.timezone : null,
             timezoneFallback: tzInfo.isExplicit ? null : tzInfo.timezone,
             currentLocalTime: tzInfo.now,
@@ -49,7 +50,6 @@ export function createSelfMcp() {
             // which one is actually running this turn.
             embeddingsEnabled: true,
             embeddingsProvider: activeEmbeddingProvider(),
-            sendblueEnabled: Boolean(process.env.SENDBLUE_API_KEY),
           };
           return {
             content: [{ type: "text" as const, text: JSON.stringify(config, null, 2) }],
@@ -94,18 +94,18 @@ Use when the user tells you their timezone or location ("I'm in Dallas", "use ce
       ),
       tool(
         "set_model",
-        `Switch the Claude model used for both this dispatcher and any sub-agents. The change applies to the *next* turn (this turn finishes on the current model). Accepts either a canonical ID or a friendly alias.
+        `Switch the Llama Bridge model alias used for both this dispatcher and any sub-agents. The change applies to the *next* turn (this turn finishes on the current model). Accepts a bridge model id or a friendly alias.
 
 Aliases: ${Object.keys(MODEL_ALIASES).map((k) => `"${k}"`).join(", ")}
-Canonical: ${[...KNOWN_MODELS].map((k) => `"${k}"`).join(", ")}
+Configured default: ${process.env.LLAMA_BRIDGE_MODEL ?? "default"}
 
-Use when the user says "use opus", "switch to sonnet", "make it faster (haiku)", etc.
+Use when the user asks to change the model, speed, or quality tradeoff. The bridge handles provider routing and cost policy centrally.
 
 Cost note (approximate, per 1M output tokens): Opus 4.7 ≈ $75, Sonnet 4.6 ≈ $15, Haiku 4.5 ≈ $4. Mention briefly when switching to Opus.`,
         {
           model: z
             .string()
-            .describe('Model to use. Canonical ID like "claude-opus-4-7" or alias like "opus".'),
+            .describe('Bridge model id to use, or an alias like "default" / "fast".'),
         },
         async ({ model }) => {
           const resolved = resolveModelInput(model);
@@ -114,7 +114,7 @@ Cost note (approximate, per 1M output tokens): Opus 4.7 ≈ $75, Sonnet 4.6 ≈ 
               content: [
                 {
                   type: "text" as const,
-                  text: `Unknown model "${model}". Try one of: ${[...KNOWN_MODELS].join(", ")} or aliases ${Object.keys(MODEL_ALIASES).join(", ")}.`,
+                  text: `Unknown model "${model}". Try ${process.env.LLAMA_BRIDGE_MODEL ?? "default"} or aliases ${Object.keys(MODEL_ALIASES).join(", ")}.`,
                 },
               ],
             };

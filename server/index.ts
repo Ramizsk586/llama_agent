@@ -4,7 +4,6 @@ import cors from "cors";
 import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { addClient } from "./broadcast.js";
-import { createSendblueRouter } from "./sendblue.js";
 import { handleUserMessage } from "./interaction-agent.js";
 import { loadIntegrations } from "./integrations/registry.js";
 import { startCleanupLoop } from "./memory/clean.js";
@@ -16,8 +15,11 @@ import { createComposioRouter } from "./composio-routes.js";
 import { ensureProactiveWatcher } from "./proactive-email.js";
 import { preloadLocalModel } from "./embeddings.js";
 import { createMemoryRouter } from "./memory-routes.js";
+import { ensureBridgeReachable } from "./llm/bridge-client.js";
+import { startTelegram } from "./channels/telegram.js";
 
 async function main() {
+  await ensureBridgeReachable();
   await loadIntegrations();
   startCleanupLoop();
   startAutomationLoop();
@@ -39,6 +41,8 @@ async function main() {
     );
   }
 
+  await startTelegram();
+
   const app = express();
   app.use(cors());
   // Composio webhook receiver must read raw bytes for HMAC verification, so
@@ -52,7 +56,6 @@ async function main() {
     res.json({ ok: true, service: "boop-agent" });
   });
 
-  app.use("/sendblue", createSendblueRouter());
   app.use("/composio", createComposioRouter());
   app.use("/memory", createMemoryRouter());
 
@@ -111,7 +114,6 @@ async function main() {
     console.log(`boop-agent server listening on :${port}`);
     console.log(`  health      GET  http://localhost:${port}/health`);
     console.log(`  chat        POST http://localhost:${port}/chat`);
-    console.log(`  sendblue    POST http://localhost:${port}/sendblue/webhook`);
     console.log(`  websocket   WS   ws://localhost:${port}/ws`);
   });
 }
