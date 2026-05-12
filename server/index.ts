@@ -29,13 +29,41 @@ async function main() {
   app.use(express.json({ limit: "2mb" }));
 
   app.get("/", (_req, res) => {
-    res.json({
-      ok: true,
-      service: "boop-agent",
-      dashboard: "http://localhost:5173",
-      health: "/health",
-      websocket: "/ws",
-    });
+    res.type("html").send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Boop Agent</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #080d1d; color: #eef4ff; }
+    main { width: min(720px, calc(100vw - 32px)); }
+    h1 { margin: 0 0 10px; font-size: 40px; letter-spacing: 0; }
+    p { color: #9fb0ce; line-height: 1.6; font-size: 16px; }
+    .panel { border: 1px solid #25324d; background: #10182b; border-radius: 8px; padding: 28px; box-shadow: 0 24px 80px #0008; }
+    .status { display: inline-flex; gap: 8px; align-items: center; color: #24d39a; font-weight: 700; }
+    .dot { width: 10px; height: 10px; border-radius: 999px; background: #24d39a; box-shadow: 0 0 18px #24d39a; }
+    .links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+    a { color: #eef4ff; text-decoration: none; border: 1px solid #30405f; border-radius: 6px; padding: 10px 14px; background: #17223a; }
+    a:hover { border-color: #72a7ff; }
+    code { color: #b9c8e8; }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <div class="status"><span class="dot"></span> Boop is live</div>
+    <h1>Boop Agent</h1>
+    <p>This public ngrok URL is forwarding to the local Boop server. Telegram polling and webhooks use this server endpoint.</p>
+    <p>The debug dashboard runs locally at <code>http://localhost:5173</code> on this machine.</p>
+    <div class="links">
+      <a href="/health">Health</a>
+      <a href="http://localhost:5173">Open Local Dashboard</a>
+      <a href="/composio/toolkits">Composio Toolkits</a>
+    </div>
+  </main>
+</body>
+</html>`);
   });
 
   app.get("/health", (_req, res) => {
