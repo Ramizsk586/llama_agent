@@ -23,6 +23,17 @@ interface TelegramBot {
 
 let botStarted = false;
 
+function hardcodedReply(content: string): string | null {
+  const normalized = content.trim().toLowerCase().replace(/[!.?]+$/g, "");
+  if (normalized === "/start") {
+    return "Hi, I am Boop. Send me a task, question, reminder, or anything you want me to help with.";
+  }
+  if (normalized === "hi" || normalized === "hello") {
+    return "Hey, I am here. What should we work on?";
+  }
+  return null;
+}
+
 export async function startTelegram(): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token || botStarted) return;
@@ -47,6 +58,23 @@ export async function startTelegram(): Promise<void> {
       telegram_chat_id: chatId,
       handle: message.message_id,
     });
+
+    const directReply = hardcodedReply(content);
+    if (directReply) {
+      await convex.mutation(api.messages.send, {
+        conversationId,
+        role: "user",
+        content,
+      });
+      await bot.sendMessage(chatId, directReply);
+      await convex.mutation(api.messages.send, {
+        conversationId,
+        role: "assistant",
+        content: directReply,
+      });
+      console.log(`[turn ${turnTag}] -> telegram hardcoded reply (${directReply.length} chars)`);
+      return;
+    }
 
     const typing = startTyping(bot, chatId);
     try {

@@ -30,6 +30,7 @@ export function AgentsPanel({ isDark }: { isDark: boolean }) {
   const agents = useQuery(api.agents.list, { limit: 60 });
   const [selected, setSelected] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [cleaning, setCleaning] = useState(false);
 
   const agentList = agents ?? [];
   const filtered =
@@ -42,6 +43,18 @@ export function AgentsPanel({ isDark }: { isDark: boolean }) {
     ? "bg-slate-900/40 border-slate-800/60"
     : "bg-white border-slate-200";
   const hoverBg = isDark ? "hover:bg-slate-800/40" : "hover:bg-slate-50";
+
+  async function cleanupFinishedWork() {
+    if (cleaning) return;
+    const ok = window.confirm("Delete completed, failed, and cancelled agent work from the dashboard?");
+    if (!ok) return;
+    setCleaning(true);
+    try {
+      await fetch("/api/agents/cleanup", { method: "POST" });
+    } finally {
+      setCleaning(false);
+    }
+  }
 
   if (selected) {
     return (
@@ -78,6 +91,18 @@ export function AgentsPanel({ isDark }: { isDark: boolean }) {
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">
+          <button
+            onClick={cleanupFinishedWork}
+            disabled={cleaning}
+            className={`px-2.5 py-1 text-xs rounded-md transition-colors disabled:opacity-50 ${
+              isDark
+                ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+            }`}
+            title="Delete completed, failed, and cancelled agent work"
+          >
+            {cleaning ? "Cleaning..." : "Cleanup"}
+          </button>
           {["all", "running", "completed", "failed"].map((s) => (
             <button
               key={s}
@@ -217,6 +242,7 @@ function AgentDetail({
   const logs = useQuery(api.agents.getLogs, { agentId, limit: 500 });
   const [requestOpen, setRequestOpen] = useState(false);
   const [responseOpen, setResponseOpen] = useState(false);
+  const [busyAction, setBusyAction] = useState<"cancel" | "delete" | null>(null);
 
   if (!agent) {
     return (
@@ -233,6 +259,30 @@ function AgentDetail({
   const cfg = STATUS_CONFIG[agent.status] ?? STATUS_CONFIG.running;
   const isActive = agent.status === "running" || agent.status === "spawned";
   const totalTokens = agent.inputTokens + agent.outputTokens;
+  const currentAgentId = agent.agentId;
+
+  async function cancelThisAgent() {
+    if (busyAction) return;
+    setBusyAction("cancel");
+    try {
+      await fetch(`/api/agents/${encodeURIComponent(currentAgentId)}/cancel`, { method: "POST" });
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function deleteThisAgent() {
+    if (busyAction) return;
+    const ok = window.confirm("Delete this agent work and its logs?");
+    if (!ok) return;
+    setBusyAction("delete");
+    try {
+      await fetch(`/api/agents/${encodeURIComponent(currentAgentId)}`, { method: "DELETE" });
+      onBack();
+    } finally {
+      setBusyAction(null);
+    }
+  }
 
   return (
     <div className="flex flex-col h-full -m-5 fade-in">
@@ -270,6 +320,34 @@ function AgentDetail({
         </span>
         <span className={`text-xs ${cfg.color}`}>{cfg.label}</span>
         <div className="ml-auto flex items-center gap-3 text-xs mono">
+          {isActive && (
+            <button
+              onClick={cancelThisAgent}
+              disabled={busyAction !== null}
+              className={`rounded-md px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                isDark
+                  ? "bg-rose-500/10 text-rose-300 hover:bg-rose-500/20"
+                  : "bg-rose-50 text-rose-700 hover:bg-rose-100"
+              }`}
+              title="Cancel this running agent"
+            >
+              {busyAction === "cancel" ? "Cancelling..." : "Cancel"}
+            </button>
+          )}
+          {!isActive && (
+            <button
+              onClick={deleteThisAgent}
+              disabled={busyAction !== null}
+              className={`rounded-md px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                isDark
+                  ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+              title="Delete this agent work"
+            >
+              {busyAction === "delete" ? "Deleting..." : "Delete"}
+            </button>
+          )}
           {agent.costUsd > 0 && (
             <span className="text-emerald-500 font-semibold">
               ${agent.costUsd.toFixed(4)}

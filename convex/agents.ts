@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 
 const statusV = v.union(
@@ -106,5 +106,49 @@ export const getLogs = query({
       .withIndex("by_agent", (q) => q.eq("agentId", args.agentId))
       .order("asc")
       .take(args.limit ?? 500);
+  },
+});
+
+async function deleteLogsForAgent(ctx: MutationCtx, agentId: string) {
+  while (true) {
+    const logs = await ctx.db
+      .query("agentLogs")
+      .withIndex("by_agent", (q) => q.eq("agentId", agentId))
+      .take(100);
+    if (logs.length === 0) break;
+    for (const log of logs) await ctx.db.delete(log._id);
+  }
+}
+
+export const remove = mutation({
+  args: { agentId: v.string() },
+  handler: async (ctx, args) => {
+    const agent = await ctx.db
+      .query("executionAgents")
+      .withIndex("by_agent_id", (q) => q.eq("agentId", args.agentId))
+      .unique();
+    if (!agent) return { deleted: 0 };
+
+    await deleteLogsForAgent(ctx, args.agentId);
+    await ctx.db.delete(agent._id);
+    return { deleted: 1 };
+  },
+});
+
+export const cleanupFinished = mutation({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 100, 500);
+    const agents = await ctx.db.query("executionAgents").order("desc").take(limit);
+    let deleted = 0;
+
+    for (const agent of agents) {
+      if (agent.status === "running" || agent.status === "spawned") continue;
+      await deleteLogsForAgent(ctx, agent.agentId);
+      await ctx.db.delete(agent._id);
+      deleted += 1;
+    }
+
+    return { deleted };
   },
 });

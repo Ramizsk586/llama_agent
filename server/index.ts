@@ -12,7 +12,7 @@ import { startCleanupLoop } from "./memory/clean.js";
 import { startAutomationLoop } from "./automations.js";
 import { startHeartbeatLoop } from "./heartbeat.js";
 import { startConsolidationLoop } from "./consolidation.js";
-import { cancelAgent, retryAgent } from "./execution-agent.js";
+import { cancelAgent, cleanupFinishedAgentWork, deleteAgentWork, retryAgent } from "./execution-agent.js";
 import { createComposioRouter } from "./composio-routes.js";
 import { ensureProactiveWatcher } from "./proactive-email.js";
 import { preloadLocalModel } from "./embeddings.js";
@@ -81,10 +81,36 @@ async function main() {
   app.use("/memory", createMemoryRouter());
   app.use("/api/memory", createMemoryRouter());
 
-  app.post("/agents/:id/cancel", (req, res) => {
-    const ok = cancelAgent(req.params.id);
+  const agentIdParam = (req: express.Request) =>
+    Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+
+  const handleCancelAgent = (req: express.Request, res: express.Response) => {
+    const ok = cancelAgent(agentIdParam(req));
     res.json({ ok });
-  });
+  };
+
+  const handleCleanupAgents = async (_req: express.Request, res: express.Response) => {
+    try {
+      res.json({ ok: true, ...(await cleanupFinishedAgentWork()) });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  };
+
+  const handleDeleteAgent = async (req: express.Request, res: express.Response) => {
+    try {
+      res.json({ ok: true, ...(await deleteAgentWork(agentIdParam(req))) });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  };
+
+  app.post("/agents/:id/cancel", handleCancelAgent);
+  app.post("/api/agents/:id/cancel", handleCancelAgent);
+  app.post("/agents/cleanup", handleCleanupAgents);
+  app.post("/api/agents/cleanup", handleCleanupAgents);
+  app.delete("/agents/:id", handleDeleteAgent);
+  app.delete("/api/agents/:id", handleDeleteAgent);
 
   app.post("/consolidate", async (_req, res) => {
     try {

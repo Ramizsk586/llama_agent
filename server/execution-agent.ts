@@ -52,6 +52,7 @@ Your job:
 
 Research discipline:
 - Prefer advanced_web_search for fresh/factual questions. It uses Llama Bridge source research and verification.
+- If advanced_web_search says live_web_available is false, live web search is not configured. Use any fallback data cautiously, and clearly say when a current/live answer cannot be verified.
 - Cite real URLs only — NEVER invent sources. If a page failed to load, say so.
 - Cross-check when it matters: one search is rarely enough for a claim.
 
@@ -254,6 +255,15 @@ export function cancelAgent(agentId: string): boolean {
   if (!abort) return false;
   abort.abort();
   return true;
+}
+
+export async function deleteAgentWork(agentId: string): Promise<{ deleted: number }> {
+  cancelAgent(agentId);
+  return await convex.mutation(api.agents.remove, { agentId });
+}
+
+export async function cleanupFinishedAgentWork(): Promise<{ deleted: number }> {
+  return await convex.mutation(api.agents.cleanupFinished, { limit: 500 });
 }
 
 export function runningAgentIds(): string[] {
