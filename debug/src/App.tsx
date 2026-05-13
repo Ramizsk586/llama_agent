@@ -10,6 +10,7 @@ import {
   DashboardSquare01Icon,
   ArrowShrink02Icon,
   Settings01Icon,
+  Download04Icon,
 } from "@hugeicons/core-free-icons";
 import { api } from "../../convex/_generated/api.js";
 import { useSocket } from "./lib/useSocket.js";
@@ -33,6 +34,11 @@ type View =
   | "settings";
 
 type Theme = "dark" | "light";
+
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
 
 const NAV_ICONS: Record<View, any> = {
   dashboard: DashboardSquare01Icon,
@@ -64,9 +70,18 @@ function getStoredTheme(): Theme {
   }
 }
 
+function isStandaloneDisplay(): boolean {
+  return (
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+}
+
 export function App() {
   const [view, setView] = useState<View>("dashboard");
   const [theme, setTheme] = useState<Theme>(getStoredTheme);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isInstalled, setIsInstalled] = useState(isStandaloneDisplay);
   const { connected } = useSocket();
 
   const counts = useQuery(api.memoryRecords.countsByTier, {});
@@ -83,6 +98,38 @@ export function App() {
     localStorage.setItem("boop-debug-theme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    const onBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    const onAppInstalled = () => {
+      setInstallPrompt(null);
+      setIsInstalled(true);
+    };
+    const displayMode = window.matchMedia?.("(display-mode: standalone)");
+    const onDisplayModeChange = () => setIsInstalled(isStandaloneDisplay());
+
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onAppInstalled);
+    displayMode?.addEventListener("change", onDisplayModeChange);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onAppInstalled);
+      displayMode?.removeEventListener("change", onDisplayModeChange);
+    };
+  }, []);
+
+  async function installApp() {
+    if (!installPrompt) {
+      window.alert("Install is not available yet. Open this dashboard in Chrome or Edge over HTTPS, then use the browser install option.");
+      return;
+    }
+    await installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => null);
+    setInstallPrompt(null);
+  }
+
   const isDark = theme === "dark";
 
   return (
@@ -96,7 +143,7 @@ export function App() {
         } backdrop-blur-sm`}
       >
         <div className="flex items-center gap-3">
-          <img src="/lunagotchi.png" alt="Boop" className="w-7 h-7 rounded-lg" />
+          <img src="/appicon.png" alt="Boop" className="w-7 h-7 rounded-lg" />
           <h1
             className={`text-sm font-bold tracking-wide uppercase ${
               isDark ? "text-slate-400" : "text-slate-500"
@@ -135,6 +182,19 @@ export function App() {
                 color={isDark ? "text-amber-400" : "text-amber-600"}
               />
             </div>
+          )}
+          {!isInstalled && (
+            <button
+              onClick={installApp}
+              className={`p-1.5 rounded-lg transition-colors ${
+                isDark
+                  ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-200"
+              }`}
+              title={installPrompt ? "Install Boop" : "Install Boop from browser menu"}
+            >
+              <HugeiconsIcon icon={Download04Icon} size={16} />
+            </button>
           )}
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}

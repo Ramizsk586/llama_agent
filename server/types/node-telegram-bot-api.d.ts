@@ -8,5 +8,6 @@ declare module "node-telegram-bot-api" {
     }) => void | Promise<void>): void;
     on(event: "polling_error", listener: (error: Error) => void): void;
     sendMessage(chatId: number | string, text: string): Promise<unknown>;
+    sendChatAction(chatId: number | string, action: "typing"): Promise<unknown>;
   }
 }

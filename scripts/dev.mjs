@@ -4,6 +4,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -76,6 +77,102 @@ function commandOutput(cmd, args) {
     child.on("exit", (code) => ok(code === 0 ? out : null));
     child.on("error", () => ok(null));
   });
+}
+
+function commandOutputWithCodes(cmd, args, okCodes = [0]) {
+  return new Promise((ok) => {
+    const child = spawnLocal(cmd, args, { cwd: root, env: { ...process.env } });
+    let out = "";
+    child.stdout?.on("data", (d) => {
+      out += d.toString();
+    });
+    child.stderr?.on("data", (d) => {
+      out += d.toString();
+    });
+    child.on("exit", (code) => ok(okCodes.includes(code ?? 1) ? out : null));
+    child.on("error", () => ok(null));
+  });
+}
+
+function runInherit(cmd, args) {
+  return new Promise((ok, fail) => {
+    if (process.platform === "win32" && cmd.endsWith(".cmd")) {
+      args = ["/d", "/s", "/c", [cmd, ...args].map(quoteCmdArg).join(" ")];
+      cmd = "cmd.exe";
+    }
+    const child = spawn(cmd, args, { cwd: root, env: { ...process.env }, stdio: "inherit" });
+    child.on("exit", (code) => (code === 0 ? ok() : fail(new Error(`${cmd} exited ${code}`))));
+    child.on("error", fail);
+  });
+}
+
+function npmCmd() {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+function summarizeOutdated(outdated) {
+  return Object.entries(outdated)
+    .filter(([, info]) => info?.current && info?.latest && info.current !== info.latest)
+    .map(([name, info]) => ({
+      name,
+      current: info.current,
+      latest: info.latest,
+      type: info.type || "dependencies",
+    }));
+}
+
+async function readOutdatedPackages() {
+  const out = await commandOutputWithCodes(npmCmd(), ["outdated", "--json", "--long"], [0, 1]);
+  if (out === null) return null;
+  if (!out.trim()) return [];
+  const jsonStart = out.indexOf("{");
+  if (jsonStart === -1) return [];
+  try {
+    return summarizeOutdated(JSON.parse(out.slice(jsonStart)));
+  } catch {
+    return null;
+  }
+}
+
+async function confirm(question) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(`${question} [Y/n] `)).trim().toLowerCase();
+    return answer === "" || answer === "y" || answer === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
+async function maybeUpdateDependencies() {
+  const outdated = await readOutdatedPackages();
+  if (!outdated) {
+    console.log(`${C.dim}Could not check npm package updates right now; starting with installed versions.${C.reset}`);
+    return;
+  }
+  if (!outdated.length) return;
+
+  const preview = outdated
+    .slice(0, 12)
+    .map((pkg) => `${pkg.name} ${pkg.current} -> ${pkg.latest}`)
+    .join("\n  ");
+  const more = outdated.length > 12 ? `\n  ...and ${outdated.length - 12} more` : "";
+  console.log(`\n${C.upstream}Package updates are available:${C.reset}\n  ${preview}${more}\n`);
+
+  const shouldUpdate = await confirm("Install these updates before starting Boop?");
+  if (!shouldUpdate) return;
+
+  const prod = outdated.filter((pkg) => pkg.type !== "devDependencies").map((pkg) => `${pkg.name}@latest`);
+  const dev = outdated.filter((pkg) => pkg.type === "devDependencies").map((pkg) => `${pkg.name}@latest`);
+  try {
+    if (prod.length) await runInherit(npmCmd(), ["install", ...prod]);
+    if (dev.length) await runInherit(npmCmd(), ["install", "--save-dev", ...dev]);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    console.error("Dependency update failed; leaving the server stopped so you can retry safely.");
+    process.exit(1);
+  }
 }
 
 function versionAtLeast(version, minimum) {
@@ -175,7 +272,7 @@ async function waitForNgrokUrl(timeoutMs = 15000) {
 
 function showBanner(url, stable) {
   const line = "=".repeat(68);
-  const dashboard = "http://localhost:5173";
+  const dashboard = `${url.replace(/\/$/, "")}/dashboard`;
   const telegram = envVars.TELEGRAM_BOT_TOKEN ? "polling enabled" : "set TELEGRAM_BOT_TOKEN to enable";
   const headline = stable ? "your stable public URL is live." : "ngrok tunnel is live.";
 
@@ -215,6 +312,8 @@ ${C.dim}  Telegram polling still works without a tunnel.
 `);
   }
 }
+
+await maybeUpdateDependencies();
 
 console.log(`\nBoop dev starting on port ${port}. Ctrl-C to stop everything.\n`);
 

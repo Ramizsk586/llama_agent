@@ -9,7 +9,7 @@
 //   - BOOP_UPSTREAM_CHECK=false → silent (disabled)
 //   - upstream remote + new commits → banner w/ count + /upgrade-boop instruction
 //   - upstream remote, up to date   → silent
-//   - no upstream + forked origin   → one-line hint on how to add upstream
+//   - no upstream + forked origin   → silent unless --tips is passed
 //   - no upstream + origin IS upstream (raroque/boop-agent) → silent
 
 import { spawn, execSync } from "node:child_process";
@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
+const showSetupTips = process.argv.includes("--tips");
 
 const CANONICAL_REGEX = /raroque\/boop-agent(\.git)?$/;
 const FETCH_TIMEOUT_MS = 5000;
@@ -123,7 +124,7 @@ if (!upstreamCheckEnabled) process.exit(0);
     const originUrl = tryExec("git remote get-url origin") || "";
     // Canonical clone (rare) or fork-with-no-upstream (common). Only nag the
     // latter — if this user IS the upstream they have nothing to pull.
-    if (!CANONICAL_REGEX.test(originUrl)) {
+    if (showSetupTips && !CANONICAL_REGEX.test(originUrl)) {
       printNoUpstreamHint();
     }
     return;

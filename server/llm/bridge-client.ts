@@ -135,6 +135,29 @@ export async function chatWithUsage(
   };
 }
 
+export async function callBridgeTool(
+  name: string,
+  arguments_: Record<string, unknown>,
+  timeoutMs = 120000,
+): Promise<unknown> {
+  configureBridgeEnvironment();
+  const response = await fetch(`${bridgeUrl()}/api/tools/${encodeURIComponent(name)}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...bridgeAuthHeaders(),
+    },
+    body: JSON.stringify(arguments_),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Llama Bridge tool ${name} failed: ${response.status} ${await response.text()}`);
+  }
+
+  return await response.json();
+}
+
 export async function* query(...args: Parameters<AgentSdk["query"]>) {
   configureBridgeEnvironment();
   sdkPromise ??= import("@anthropic-ai/claude-agent-sdk");

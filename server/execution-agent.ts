@@ -3,6 +3,7 @@ import { convex } from "./convex-client.js";
 import { broadcast } from "./broadcast.js";
 import { buildMcpServersForIntegrations, listIntegrations } from "./integrations/registry.js";
 import { createDraftStagingMcp } from "./draft-tools.js";
+import { createBridgeWebMcp } from "./bridge-web-tools.js";
 import { aggregateUsageFromResult, EMPTY_USAGE, type UsageTotals } from "./usage.js";
 import { getRuntimeModel } from "./runtime-config.js";
 import { query } from "./llm/bridge-client.js";
@@ -46,15 +47,15 @@ const EXECUTION_SYSTEM = `You are a focused background worker for the user.
 
 Your job:
 1. Perform the task you were given, end to end.
-2. Use your tools — WebSearch, WebFetch, and any integrations loaded for this spawn — to investigate and act.
+2. Use your tools - especially advanced_web_search and any integrations loaded for this spawn - to investigate and act.
 3. Return a concise, well-structured answer — not a data dump.
 
 Research discipline:
-- Prefer WebSearch for fresh/factual questions. WebFetch when you need the content of a known URL.
+- Prefer advanced_web_search for fresh/factual questions. It uses Llama Bridge source research and verification.
 - Cite real URLs only — NEVER invent sources. If a page failed to load, say so.
 - Cross-check when it matters: one search is rarely enough for a claim.
 
-MANDATORY: for any task that used WebSearch or WebFetch, end your response with
+MANDATORY: for any task that used advanced_web_search, end your response with
 a "Sources:" section listing the ACTUAL URLs you fetched or found. Example:
 
   Sources:
@@ -122,13 +123,13 @@ export async function spawnExecutionAgent(opts: SpawnOptions): Promise<SpawnResu
   const draftServer = opts.conversationId
     ? createDraftStagingMcp(opts.conversationId)
     : undefined;
+  const bridgeWebServer = createBridgeWebMcp();
   const mcpServers = {
+    "llama-bridge-web": bridgeWebServer,
     ...integrationServers,
     ...(draftServer ? { "boop-drafts": draftServer } : {}),
   };
   const allowedTools = [
-    "WebSearch",
-    "WebFetch",
     "Skill",
     ...Object.keys(mcpServers).flatMap((n) => [`mcp__${n}__*`]),
   ];
@@ -147,6 +148,7 @@ export async function spawnExecutionAgent(opts: SpawnOptions): Promise<SpawnResu
         model: requestedModel,
         mcpServers,
         allowedTools,
+        disallowedTools: ["WebSearch", "WebFetch"],
         // Load .claude/skills/ so the model can invoke SKILL.md playbooks. Without
         // this the SDK runs in isolation mode and skills are silently ignored.
         settingSources: ["project"],
@@ -180,7 +182,7 @@ export async function spawnExecutionAgent(opts: SpawnOptions): Promise<SpawnResu
         }
       } else if (msg.type === "user") {
         for (const block of msg.message.content) {
-          if (block.type === "tool_result") {
+          if (typeof block !== "string" && block.type === "tool_result") {
             const text = Array.isArray(block.content)
               ? block.content
                   .map((c: { type: string; text?: string }) => (c.type === "text" ? (c.text ?? "") : ""))

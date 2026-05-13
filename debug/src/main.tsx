@@ -14,6 +14,14 @@ const storedTheme = (() => {
 })();
 document.documentElement.classList.add(storedTheme === "light" ? "light" : "dark");
 
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      /* PWA install still works in browsers that do not require a service worker. */
+    });
+  });
+}
+
 const convexUrl = import.meta.env.VITE_CONVEX_URL;
 if (!convexUrl) {
   document.getElementById("root")!.innerHTML = `

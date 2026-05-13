@@ -18,6 +18,7 @@ interface TelegramBot {
   on(event: "message", listener: (message: TelegramMessage) => void | Promise<void>): void;
   on(event: "polling_error", listener: (error: Error) => void): void;
   sendMessage(chatId: number | string, text: string): Promise<unknown>;
+  sendChatAction(chatId: number | string, action: "typing"): Promise<unknown>;
 }
 
 let botStarted = false;
@@ -47,6 +48,7 @@ export async function startTelegram(): Promise<void> {
       handle: message.message_id,
     });
 
+    const typing = startTyping(bot, chatId);
     try {
       const reply = await handleUserMessage({
         conversationId,
@@ -55,6 +57,7 @@ export async function startTelegram(): Promise<void> {
         onThinking: (t) => broadcast("thinking", { conversationId, t }),
       });
       if (!reply) return;
+      typing.stop();
       await bot.sendMessage(chatId, reply);
       await convex.mutation(api.messages.send, {
         conversationId,
@@ -64,7 +67,10 @@ export async function startTelegram(): Promise<void> {
       console.log(`[turn ${turnTag}] -> telegram reply (${reply.length} chars)`);
     } catch (err) {
       console.error(`[turn ${turnTag}] telegram handler error`, err);
+      typing.stop();
       await bot.sendMessage(chatId, "Sorry - I hit an error processing that. Try again in a moment.");
+    } finally {
+      typing.stop();
     }
   });
 
@@ -73,4 +79,23 @@ export async function startTelegram(): Promise<void> {
   });
 
   console.log("[telegram] polling enabled");
+}
+
+function startTyping(bot: TelegramBot, chatId: number | string): { stop: () => void } {
+  let stopped = false;
+  const send = () => {
+    if (stopped) return;
+    bot.sendChatAction(chatId, "typing").catch(() => {
+      /* ignore transient Telegram typing failures */
+    });
+  };
+
+  send();
+  const interval = setInterval(send, 4000);
+  return {
+    stop: () => {
+      stopped = true;
+      clearInterval(interval);
+    },
+  };
 }
