@@ -4,6 +4,7 @@ import { convex } from "./convex-client.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
 import { broadcast } from "./broadcast.js";
 import { getUserTimezone } from "./timezone-config.js";
+import { sendTelegramToConversation } from "./telegram-delivery.js";
 
 function randomId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -66,11 +67,15 @@ async function runAutomation(a: {
       agentId: res.agentId,
     });
 
-    if (a.notifyConversationId && res.result) {
+    const deliveryConversationId =
+      a.notifyConversationId ?? (a.conversationId?.startsWith("telegram:") ? a.conversationId : undefined);
+    if (deliveryConversationId && res.result) {
+      const content = `[${a.name}]\n\n${res.result}`;
+      await sendTelegramToConversation(deliveryConversationId, content);
       await convex.mutation(api.messages.send, {
-        conversationId: a.notifyConversationId,
+        conversationId: deliveryConversationId,
         role: "assistant",
-        content: `[${a.name}]\n\n${res.result}`,
+        content,
       });
     }
 

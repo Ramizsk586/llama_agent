@@ -19,7 +19,32 @@ function packageBin(name) {
   return resolve(root, "node_modules", ".bin", process.platform === "win32" ? `${name}.cmd` : name);
 }
 
+function packageBinCommand(name) {
+  if (process.platform !== "win32") return { cmd: packageBin(name), args: [] };
+
+  const packageJson = resolve(root, "node_modules", name, "package.json");
+  if (!existsSync(packageJson)) return { cmd: packageBin(name), args: [] };
+
+  try {
+    const pkg = JSON.parse(readFileSync(packageJson, "utf8"));
+    const bin = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.[name] ?? Object.values(pkg.bin ?? {})[0];
+    if (typeof bin === "string") {
+      return { cmd: process.execPath, args: [resolve(dirname(packageJson), bin)] };
+    }
+  } catch {
+    /* fall back to the package manager shim */
+  }
+
+  return { cmd: packageBin(name), args: [] };
+}
+
+function backgroundWindowsOptions(options = {}) {
+  if (process.platform !== "win32" || process.env.LLAMA_AGENT_BACKGROUND !== "1") return options;
+  return { ...options, windowsHide: true };
+}
+
 function spawnLocal(cmd, args, options) {
+  options = backgroundWindowsOptions(options);
   if (process.platform === "win32" && cmd.endsWith(".cmd")) {
     return spawn("cmd.exe", ["/d", "/s", "/c", [cmd, ...args].map(quoteCmdArg).join(" ")], options);
   }
@@ -58,7 +83,7 @@ const useNgrok = !hasStaticUrl || Boolean(ngrokDomain);
 function hasBinary(name) {
   return new Promise((ok) => {
     const lookup = process.platform === "win32" ? "where" : "which";
-    const child = spawn(lookup, [name], { stdio: "ignore" });
+    const child = spawn(lookup, [name], backgroundWindowsOptions({ stdio: "ignore" }));
     child.on("exit", (code) => ok(code === 0));
     child.on("error", () => ok(false));
   });
@@ -320,8 +345,10 @@ console.log(`\nBoop dev starting on port ${port}. Ctrl-C to stop everything.\n`)
 run("upstream", "node", ["scripts/check-upstream.mjs"]);
 
 const serverChild = run("server", "node", ["--import", "tsx", "server/index.ts"], /listening on :/);
-const convexChild = run("convex", packageBin("convex"), ["dev"], /Convex functions ready/);
-const debugChild = run("debug", packageBin("vite"), ["--config", "debug/vite.config.ts"], /Local:\s+http/);
+const convexBin = packageBinCommand("convex");
+const viteBin = packageBinCommand("vite");
+const convexChild = run("convex", convexBin.cmd, [...convexBin.args, "dev"], /Convex functions ready/);
+const debugChild = run("debug", viteBin.cmd, [...viteBin.args, "--config", "debug/vite.config.ts"], /Local:\s+http/);
 const children = [serverChild, convexChild, debugChild];
 const criticalChildren = [serverChild, convexChild, debugChild];
 
@@ -344,7 +371,8 @@ async function autoRegisterComposioWebhook(url) {
   if (envVars.COMPOSIO_AUTO_WEBHOOK === "false") return;
   if (!envVars.COMPOSIO_API_KEY) return;
   const prefix = `${C.ngrok}composio${C.reset} | `;
-  const child = spawnLocal(packageBin("tsx"), ["scripts/composio-webhook.ts", url], {
+  const tsxBin = packageBinCommand("tsx");
+  const child = spawnLocal(tsxBin.cmd, [...tsxBin.args, "scripts/composio-webhook.ts", url], {
     cwd: root,
     env: { ...process.env },
   });
