@@ -41,14 +41,14 @@ async function advancedWebSearch(args: {
   max_results: number;
   required_verified_sources: number;
   include_images: boolean;
-}) {
+}, signal?: AbortSignal) {
   const source = await callBridgeTool("source_research", {
     query: args.query,
     max_results: args.max_results,
     required_verified_sources: args.required_verified_sources,
     include_images: args.include_images,
     skip_master_review: true,
-  });
+  }, 120000, signal);
   if (bridgeToolOk(source)) return source;
 
   const errorMessage = bridgeToolErrorMessage(source);
@@ -59,7 +59,7 @@ async function advancedWebSearch(args: {
     query: args.query,
     limit: Math.min(args.max_results, 10),
     language: "en",
-  });
+  }, 120000, signal);
 
   return {
     tool: "advanced_web_search",
@@ -87,7 +87,13 @@ export function createBridgeWebMcp() {
           required_verified_sources: z.number().int().min(1).max(5).default(2),
           include_images: z.boolean().default(false),
         },
-        async (args) => toolText(await advancedWebSearch(args)),
+        async (args, extra) => {
+          const signal =
+            extra && typeof extra === "object" && "signal" in extra
+              ? (extra as { signal?: AbortSignal }).signal
+              : undefined;
+          return toolText(await advancedWebSearch(args, signal));
+        },
       ),
     ],
   });

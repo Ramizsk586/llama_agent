@@ -157,6 +157,10 @@ export async function spawnExecutionAgent(opts: SpawnOptions): Promise<SpawnResu
         abortController: abort,
       },
     })) {
+      if (abort.signal.aborted) {
+        status = "cancelled";
+        break;
+      }
       if (msg.type === "assistant") {
         for (const block of msg.message.content) {
           if (block.type === "text") {
@@ -201,6 +205,9 @@ export async function spawnExecutionAgent(opts: SpawnOptions): Promise<SpawnResu
         // final turn's raw tokens and massively undercounts on tool-heavy runs.
         usage = aggregateUsageFromResult(msg, requestedModel);
       }
+    }
+    if (abort.signal.aborted) {
+      status = "cancelled";
     }
   } catch (err) {
     status = abort.signal.aborted ? "cancelled" : "failed";
@@ -255,6 +262,24 @@ export function cancelAgent(agentId: string): boolean {
   if (!abort) return false;
   abort.abort();
   return true;
+}
+
+export async function cancelAgentWork(agentId: string): Promise<boolean> {
+  const aborted = cancelAgent(agentId);
+  const updated = await convex.mutation(api.agents.update, {
+    agentId,
+    status: "cancelled",
+    error: "Cancelled by user.",
+  });
+  if (updated) {
+    await convex.mutation(api.agents.addLog, {
+      agentId,
+      logType: "error",
+      content: "Cancelled by user.",
+    });
+    broadcast("agent_done", { agentId, status: "cancelled", result: "" });
+  }
+  return aborted || Boolean(updated);
 }
 
 export async function deleteAgentWork(agentId: string): Promise<{ deleted: number }> {

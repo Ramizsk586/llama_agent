@@ -105,6 +105,18 @@ export async function tickAutomations(): Promise<void> {
   const now = Date.now();
   const due = all.filter((a) => a.nextRunAt !== undefined && a.nextRunAt <= now);
   for (const a of due) {
+    // Claim the run before spawning. Otherwise a slow automation remains due
+    // for every scheduler tick and can launch duplicate agents.
+    const tz = a.timezone ?? (await getUserTimezone());
+    const next = nextRunFor(a.schedule, tz);
+    const claimed = await convex.mutation(api.automations.claimDue, {
+      automationId: a.automationId,
+      dueAt: now,
+      claimedAt: now,
+      nextRunAt: next ?? undefined,
+    });
+    if (!claimed) continue;
+
     // fire-and-forget so one slow automation doesn't block others
     runAutomation({
       automationId: a.automationId,

@@ -12,7 +12,7 @@ import { startCleanupLoop } from "./memory/clean.js";
 import { startAutomationLoop } from "./automations.js";
 import { startHeartbeatLoop } from "./heartbeat.js";
 import { startConsolidationLoop } from "./consolidation.js";
-import { cancelAgent, cleanupFinishedAgentWork, deleteAgentWork, retryAgent } from "./execution-agent.js";
+import { cancelAgentWork, cleanupFinishedAgentWork, deleteAgentWork, retryAgent } from "./execution-agent.js";
 import { createComposioRouter } from "./composio-routes.js";
 import { ensureProactiveWatcher } from "./proactive-email.js";
 import { preloadLocalModel } from "./embeddings.js";
@@ -84,9 +84,13 @@ async function main() {
   const agentIdParam = (req: express.Request) =>
     Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
 
-  const handleCancelAgent = (req: express.Request, res: express.Response) => {
-    const ok = cancelAgent(agentIdParam(req));
-    res.json({ ok });
+  const handleCancelAgent = async (req: express.Request, res: express.Response) => {
+    try {
+      const ok = await cancelAgentWork(agentIdParam(req));
+      res.json({ ok });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
   };
 
   const handleCleanupAgents = async (_req: express.Request, res: express.Response) => {

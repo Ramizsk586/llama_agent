@@ -99,6 +99,29 @@ export const markRan = mutation({
   },
 });
 
+export const claimDue = mutation({
+  args: {
+    automationId: v.string(),
+    dueAt: v.number(),
+    claimedAt: v.number(),
+    nextRunAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const auto = await ctx.db
+      .query("automations")
+      .withIndex("by_automation_id", (q) => q.eq("automationId", args.automationId))
+      .unique();
+    if (!auto || !auto.enabled || auto.nextRunAt === undefined || auto.nextRunAt > args.dueAt) {
+      return false;
+    }
+    await ctx.db.patch(auto._id, {
+      lastRunAt: args.claimedAt,
+      nextRunAt: args.nextRunAt,
+    });
+    return true;
+  },
+});
+
 export const createRun = mutation({
   args: {
     runId: v.string(),

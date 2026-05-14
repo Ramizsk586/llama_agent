@@ -48,6 +48,9 @@ export const update = mutation({
       .withIndex("by_agent_id", (q) => q.eq("agentId", agentId))
       .unique();
     if (!agent) return null;
+    if (agent.status === "cancelled" && patch.status && patch.status !== "cancelled") {
+      patch.status = "cancelled";
+    }
     const completed = patch.status && ["completed", "failed", "cancelled"].includes(patch.status);
     await ctx.db.patch(agent._id, { ...patch, ...(completed ? { completedAt: Date.now() } : {}) });
     return agent._id;

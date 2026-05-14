@@ -139,8 +139,11 @@ export async function callBridgeTool(
   name: string,
   arguments_: Record<string, unknown>,
   timeoutMs = 120000,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   configureBridgeEnvironment();
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
   const response = await fetch(`${bridgeUrl()}/api/tools/${encodeURIComponent(name)}`, {
     method: "POST",
     headers: {
@@ -148,7 +151,7 @@ export async function callBridgeTool(
       ...bridgeAuthHeaders(),
     },
     body: JSON.stringify(arguments_),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal: requestSignal,
   });
 
   if (!response.ok) {
